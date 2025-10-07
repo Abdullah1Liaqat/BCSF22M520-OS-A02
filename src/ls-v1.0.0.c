@@ -1,16 +1,8 @@
 /*
- * Programming Assignment 02: lsv2.0.0
- * Features implemented:
- *   1. Default column layout (down then across)
- *   2. -l long listing format
- * 
- * Compile: make
- * Run:     ./bin/ls
- *          ./bin/ls -l
- *          ./bin/ls /etc
+ * Programming Assignment 02: lsv2.1.0
+ * Feature 3: Recursive (-R)
  */
 
-#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -18,139 +10,80 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <pwd.h>
-#include <grp.h>
-#include <time.h>
-#include <sys/ioctl.h>
-#include <termios.h>
 
 extern int errno;
 
-/* Function Prototypes */
-void do_ls(const char *dir, int long_listing);
-void print_file_info(const char *path, const char *filename);
+void do_ls(const char *dir, int recursive);
+void list_dir(const char *dir, int recursive);
 
-/* ────────────────────────────────────────────── */
 int main(int argc, char const *argv[])
 {
-    int long_listing = 0;
-    const char *dirs[64];
-    int dir_count = 0;
+    int recursive = 0;
+    int start_index = 1;
 
-    /* Parse command-line arguments */
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-l") == 0)
-            long_listing = 1;
-        else
-            dirs[dir_count++] = argv[i];
+    // check if -R flag present
+    if (argc > 1 && strcmp(argv[1], "-R") == 0) {
+        recursive = 1;
+        start_index = 2;
     }
 
-    if (dir_count == 0)
-        dirs[dir_count++] = ".";
-
-    for (int i = 0; i < dir_count; i++) {
-        if (dir_count > 1)
-            printf("Directory listing of %s:\n", dirs[i]);
-        do_ls(dirs[i], long_listing);
-        if (dir_count > 1)
-            puts("");
+    if (argc == start_index) {
+        list_dir(".", recursive);
+    } else {
+        for (int i = start_index; i < argc; i++) {
+            list_dir(argv[i], recursive);
+            if (i < argc - 1) puts("");
+        }
     }
-
     return 0;
 }
 
-/* ────────────────────────────────────────────── */
-void do_ls(const char *dir, int long_listing)
+void list_dir(const char *dir, int recursive)
+{
+    printf("Directory listing of %s:\n", dir);
+    do_ls(dir, recursive);
+    puts("");
+}
+
+void do_ls(const char *dir, int recursive)
 {
     struct dirent *entry;
     DIR *dp = opendir(dir);
-    if (!dp) {
+    if (dp == NULL) {
         fprintf(stderr, "Cannot open directory: %s\n", dir);
         return;
     }
 
-    /* ─── Long Listing ─── */
-    if (long_listing) {
-        errno = 0;
-        while ((entry = readdir(dp)) != NULL) {
-            if (entry->d_name[0] == '.') continue;
-            print_file_info(dir, entry->d_name);
-        }
-        if (errno != 0) perror("readdir failed");
-        closedir(dp);
-        return;
-    }
-
-    /* ─── Column Layout ─── */
-    struct winsize ws;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
-    int term_width = ws.ws_col ? ws.ws_col : 80;
-
-    char *names[1024];
-    int count = 0, maxlen = 0;
+    errno = 0;
     while ((entry = readdir(dp)) != NULL) {
-        if (entry->d_name[0] == '.') continue;
-        names[count] = strdup(entry->d_name);
-        int len = strlen(entry->d_name);
-        if (len > maxlen) maxlen = len;
-        count++;
+        if (entry->d_name[0] == '.')
+            continue;
+        printf("%s\n", entry->d_name);
     }
+
+    if (errno != 0)
+        perror("readdir failed");
+
     closedir(dp);
 
-    int colwidth = maxlen + 2;
-    int cols = term_width / colwidth;
-    if (cols < 1) cols = 1;
-    int rows = (count + cols - 1) / cols;
+    // Recursive part
+    if (recursive) {
+        dp = opendir(dir);
+        if (dp == NULL) return;
+        while ((entry = readdir(dp)) != NULL) {
+            if (entry->d_name[0] == '.')
+                continue;
 
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
-            int i = c * rows + r;
-            if (i < count)
-                printf("%-*s", colwidth, names[i]);
+            char path[1024];
+            snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+
+            struct stat st;
+            if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                printf("\n%s:\n", path);
+                do_ls(path, recursive);
+            }
         }
-        putchar('\n');
+        closedir(dp);
     }
 
-    for (int i = 0; i < count; i++)
-        free(names[i]);
 }
-
-/* ────────────────────────────────────────────── */
-void print_file_info(const char *path, const char *filename)
-{
-    char fullpath[1024];
-    snprintf(fullpath, sizeof(fullpath), "%s/%s", path, filename);
-
-    struct stat info;
-    if (stat(fullpath, &info) == -1) {
-        perror("stat");
-        return;
-    }
-
-    /* File type and permissions */
-    printf((S_ISDIR(info.st_mode)) ? "d" : "-");
-    printf((info.st_mode & S_IRUSR) ? "r" : "-");
-    printf((info.st_mode & S_IWUSR) ? "w" : "-");
-    printf((info.st_mode & S_IXUSR) ? "x" : "-");
-    printf((info.st_mode & S_IRGRP) ? "r" : "-");
-    printf((info.st_mode & S_IWGRP) ? "w" : "-");
-    printf((info.st_mode & S_IXGRP) ? "x" : "-");
-    printf((info.st_mode & S_IROTH) ? "r" : "-");
-    printf((info.st_mode & S_IWOTH) ? "w" : "-");
-    printf((info.st_mode & S_IXOTH) ? "x" : "-");
-
-    /* Links, owner, group, size, time, name */
-    struct passwd *pw = getpwuid(info.st_uid);
-    struct group  *gr = getgrgid(info.st_gid);
-    char *time_str = ctime(&info.st_mtime);
-    time_str[strlen(time_str) - 1] = '\0';
-
-    printf(" %2ld %-8s %-8s %8ld %s %s\n",
-           (long)info.st_nlink,
-           pw ? pw->pw_name : "?",
-           gr ? gr->gr_name : "?",
-           (long)info.st_size,
-           time_str,
-           filename);
-}
-
