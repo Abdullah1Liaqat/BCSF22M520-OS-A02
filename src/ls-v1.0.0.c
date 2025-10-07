@@ -1,9 +1,10 @@
 /*
- * Programming Assignment 02: lsv2.3.0
+ * Programming Assignment 02: lsv2.4.0
  * Features:
  *   - Normal listing
  *   - Recursive (-R)
  *   - Show hidden files (-a)
+ *   - Alphabetical sorting (default)
  */
 
 #include <stdio.h>
@@ -18,6 +19,7 @@ extern int errno;
 
 void do_ls(const char *dir, int recursive, int show_all);
 void list_dir(const char *dir, int recursive, int show_all);
+int compare(const void *a, const void *b);
 
 int main(int argc, char const *argv[])
 {
@@ -25,7 +27,7 @@ int main(int argc, char const *argv[])
     int show_all = 0;
     int start_index = 1;
 
-    // Parse all flags before paths
+    // Parse flags (-a, -R)
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             if (strchr(argv[i], 'R')) recursive = 1;
@@ -34,7 +36,7 @@ int main(int argc, char const *argv[])
         } else break;
     }
 
-    // No directory arguments given -> use current directory
+    // No paths -> current directory
     if (argc == 1 || start_index == argc) {
         list_dir(".", recursive, show_all);
     } else {
@@ -54,6 +56,13 @@ void list_dir(const char *dir, int recursive, int show_all)
     puts("");
 }
 
+int compare(const void *a, const void *b)
+{
+    const char **strA = (const char **)a;
+    const char **strB = (const char **)b;
+    return strcmp(*strA, *strB);
+}
+
 void do_ls(const char *dir, int recursive, int show_all)
 {
     struct dirent *entry;
@@ -63,17 +72,31 @@ void do_ls(const char *dir, int recursive, int show_all)
         return;
     }
 
+    // Collect entries
+    char *names[1024];
+    int count = 0;
     errno = 0;
+
     while ((entry = readdir(dp)) != NULL) {
         if (!show_all && entry->d_name[0] == '.')
             continue;
-        printf("%s\n", entry->d_name);
+        names[count] = strdup(entry->d_name);
+        count++;
     }
 
     if (errno != 0)
         perror("readdir failed");
 
     closedir(dp);
+
+    // Sort alphabetically
+    qsort(names, count, sizeof(char *), compare);
+
+    // Print sorted names
+    for (int i = 0; i < count; i++) {
+        printf("%s\n", names[i]);
+        free(names[i]);
+    }
 
     // Recursive part
     if (recursive) {
